@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+        .task-form { margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #555; font-weight: 600; }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: #667eea; color: white; width: 100%; }
+        .btn-update { background: #ff9800; color: white; width: 100%; }
+        .btn-cancel { background: #6c757d; color: white; width: 100%; margin-top: 10px; }
+        .btn-complete { background: #28a745; color: white; padding: 8px 15px; margin-right: 10px; }
+        .btn-edit { background: #007bff; color: white; padding: 8px 15px; margin-right: 10px; }
+        .btn-delete { background: #dc3545; color: white; padding: 8px 15px; }
+        .task-item {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        .task-item.completed { background: #f0f9ff; border-color: #28a745; }
+        .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .task-title { font-size: 1.3em; font-weight: 600; color: #333; }
+        .task-item.completed .task-title { text-decoration: line-through; color: #888; }
+        .task-status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-completed { background: #d4edda; color: #155724; }
+        .task-description { color: #666; margin-bottom: 15px; }
+        .task-meta { color: #999; font-size: 0.85em; margin-bottom: 15px; }
+        .task-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .no-tasks { text-align: center; padding: 50px 20px; color: #999; }
+        .error-message { background: #f8d7da; color: #721c24; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
+        .success-message { background: #d4edda; color: #155724; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 Task Manager</h1>
+        <div class="task-form">
+            <div style="font-size: 1.2em; margin-bottom: 15px;" id="formTitle">➕ Add New Task</div>
+            <div id="errorMessage"></div>
+            <form id="taskForm">
+                <input type="hidden" id="taskId">
+                <div class="form-group">
+                    <label for="title">Task Title *</label>
+                    <input type="text" id="title" placeholder="Enter task title..." required>
+                </div>
+                <div class="form-group">
+                    <label for="description">Description (Optional)</label>
+                    <textarea id="description" placeholder="Enter task description..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" id="submitBtn">Add Task</button>
+                <button type="button" class="btn btn-cancel" id="cancelBtn" style="display: none;">Cancel</button>
+            </form>
+        </div>
+        <div class="tasks-container">
+            <div id="tasksList"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://task-manager-backend-6j85.onrender.com';
+        let editMode = false;
+        let editTaskId = null;
+
+        document.addEventListener('DOMContentLoaded', loadTasks);
+
+        document.getElementById('taskForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (editMode) await updateTask();
+            else await addTask();
+        });
+
+        document.getElementById('cancelBtn').addEventListener('click', resetForm);
+
+        async function loadTasks() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error('Server not responding');
+                const tasks = await response.json();
+                displayTasks(tasks);
+            } catch (error) {
+                showError('❌ Cannot connect to server. Make sure server is running on http://localhost:5000');
+                console.error('Load error:', error);
+            }
+        }
+
+        function displayTasks(tasks) {
+            const tasksList = document.getElementById('tasksList');
+            if (tasks.length === 0) {
+                tasksList.innerHTML = '<div class="no-tasks">No tasks yet. Add your first task above!</div>';
+                return;
+            }
+            tasksList.innerHTML = tasks.map(task => `
+                <div class="task-item ${task.status === 'completed' ? 'completed' : ''}">
+                    <div class="task-header">
+                        <div class="task-title">${task.title}</div>
+                        <span class="task-status status-${task.status}">${task.status}</span>
+                    </div>
+                    ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
+                    <div class="task-meta">Created: ${new Date(task.created_at).toLocaleString()}</div>
+                    <div class="task-actions">
+                        <button class="btn btn-complete" onclick="toggleTask(${task.id})">${task.status === 'pending' ? '✓ Complete' : '↻ Pending'}</button>
+                        <button class="btn btn-edit" onclick="editTask(${task.id}, '${task.title.replace(/'/g, "\\'")}', '${task.description ? task.description.replace(/'/g, "\\'") : ''}')">✏️ Edit</button>
+                        <button class="btn btn-delete" onclick="deleteTask(${task.id})">🗑️ Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function addTask() {
+            const title = document.getElementById('title').value.trim();
+            const description = document.getElementById('description').value.trim();
+            if (!title) { showError('Title is required!'); return; }
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, description })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to add task');
+                
+                resetForm();
+                showSuccess('✓ Task added successfully!');
+                await loadTasks();
+            } catch (error) {
+                showError(error.message);
+                console.error('Add error:', error);
+            }
+        }
+
+        function editTask(id, title, description) {
+            editMode = true;
+            editTaskId = id;
+            document.getElementById('taskId').value = id;
+            document.getElementById('title').value = title;
+            document.getElementById('description').value = description;
+            document.getElementById('formTitle').textContent = '✏️ Edit Task';
+            document.getElementById('submitBtn').textContent = 'Update Task';
+            document.getElementById('submitBtn').className = 'btn btn-update';
+            document.getElementById('cancelBtn').style.display = 'block';
+        }
+
+        async function updateTask() {
+            const title = document.getElementById('title').value.trim();
+            const description = document.getElementById('description').value.trim();
+            if (!title) { showError('Title is required!'); return; }
+
+            try {
+                const response = await fetch(`${API_URL}/${editTaskId}/edit`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, description })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to update task');
+                
+                resetForm();
+                showSuccess('✓ Task updated successfully!');
+                await loadTasks();
+            } catch (error) {
+                showError(error.message || '❌ Cannot connect to server');
+                console.error('Update error:', error);
+            }
+        }
+
+        async function toggleTask(id) {
+            try {
+                const response = await fetch(`${API_URL}/${id}`, { method: 'PUT' });
+                if (response.ok) await loadTasks();
+            } catch (error) {
+                showError('Failed to update status');
+            }
+        }
+
+        async function deleteTask(id) {
+            if (!confirm('Delete this task?')) return;
+            try {
+                const response = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+                if (response.ok) {
+                    showSuccess('✓ Task deleted!');
+                    await loadTasks();
+                }
+            } catch (error) {
+                showError('Failed to delete task');
+            }
+        }
+
+        function resetForm() {
+            editMode = false;
+            editTaskId = null;
+            document.getElementById('taskForm').reset();
+            document.getElementById('taskId').value = '';
+            document.getElementById('formTitle').textContent = '➕ Add New Task';
+            document.getElementById('submitBtn').textContent = 'Add Task';
+            document.getElementById('submitBtn').className = 'btn btn-primary';
+            document.getElementById('cancelBtn').style.display = 'none';
+            clearError();
+        }
+
+        function showError(msg) {
+            document.getElementById('errorMessage').innerHTML = `<div class="error-message">${msg}</div>`;
+        }
+
+        function showSuccess(msg) {
+            document.getElementById('errorMessage').innerHTML = `<div class="success-message">${msg}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('errorMessage').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
